@@ -1,4 +1,5 @@
-## Guide to Obtaining binary_mask (2D) and depth_masked (2.5D)
+# Guide to Obtaining binary_mask (2D) and depth_masked (2.5D)
+
 1 - Place the files in the root directory:
 ```
     ├── script.m
@@ -11,6 +12,7 @@
 ```
 2 - Execute script.m to obtain binary_masks and depth_masked in the same tree structure
     
+
     
 # Object Segmentation — Person 2
 
