@@ -1,4 +1,4 @@
-# Guide to Obtaining binary_mask (2D) and depth_masked (2.5D)
+## Guide to Obtaining binary_mask (2D) and depth_masked (2.5D)
 1 - Place the files in the root directory:
     ├── script.m
     ├── segment_extinguisher.m
