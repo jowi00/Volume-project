@@ -2,7 +2,7 @@ https://ltuse-my.sharepoint.com/personal/christoforos_kanellakis_ltu_se/_layouts
 
 # Guide to Obtaining binary_mask (2D) and depth_masked (2.5D)
 
-1 - Place the files in the root directory:
+1 - Place the .m files in the root directory:
 ```
     ├── script.m
     ├── segment_extinguisher.m
