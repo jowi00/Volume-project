@@ -4,14 +4,23 @@ clear
 close all
 rng(0)
 
-root = fileparts(mfilename('fullpath'));
+scriptFolder = fileparts(mfilename('fullpath'));
+root = scriptFolder;
 
-% Comprobar que RGB-D SLAM esta disponible
-if exist('rgbdvslam', 'class') ~= 8
-    error('rgbdvslam no esta disponible. Comprueba Navigation Toolbox y la version de MATLAB.')
+% Support scripts stored either in the project root or in a code subfolder
+if ~isfolder(fullfile(root, 'raw')) && ~isfolder(fullfile(root, 'results'))
+    parentFolder = fileparts(scriptFolder);
+    if isfolder(fullfile(parentFolder, 'raw')) || isfolder(fullfile(parentFolder, 'results'))
+        root = parentFolder;
+    end
 end
 
-% Configuracion
+% Check that RGB-D SLAM is available
+if exist('rgbdvslam', 'class') ~= 8
+    error('rgbdvslam is not available. Check Navigation Toolbox and the MATLAB version.')
+end
+
+% Configuration
 maxFrames = 85;
 maxSync = 0.030;
 minDepth = 0.5;
@@ -19,7 +28,7 @@ maxDepth = 6;
 pixelStep = 2;
 voxelMap = 0.025;
 
-% Calibracion
+% Calibration
 fx = 306.000244140625;
 fy = 306.1123352050781;
 cx = 318.4753112792969;
@@ -28,7 +37,7 @@ Dcolor = [-1.2477725744247437 0.8747861981391907 -9.421713184565306e-05 -0.00014
 
 intrinsics = cameraIntrinsics([fx fy], [cx cy], [400 640]);
 
-% Archivos RGB y profundidad
+% RGB and depth files
 rgbFolder = fullfile(root, 'raw', 'eval', 'camera_color_image_raw');
 depthFolder = fullfile(root, 'raw', 'eval', 'camera_depth_image_raw');
 
@@ -54,7 +63,7 @@ for i = 1:numel(depthFiles)
     depthTimes(i) = str2double(token{1});
 end
 
-% Sincronizacion sin reutilizar imagenes RGB
+% Synchronize the streams without reusing RGB images
 rgbIdx = zeros(0,1);
 depthIdx = zeros(0,1);
 syncErrors = zeros(0,1);
@@ -73,7 +82,7 @@ for i = 1:numel(depthFiles)
 end
 
 if isempty(rgbIdx)
-    error('No hay parejas RGB-D sincronizadas')
+    error('No synchronized RGB-D pairs were found.')
 end
 
 n = min(maxFrames, numel(rgbIdx));
@@ -82,12 +91,12 @@ depthIdx = depthIdx(1:n);
 syncErrors = syncErrors(1:n);
 
 fprintf('========== SYNCHRONIZATION ==========\n')
-fprintf('RGB disponibles: %d\n', numel(rgbFiles))
-fprintf('Depth disponibles: %d\n', numel(depthFiles))
-fprintf('Parejas seleccionadas: %d\n', n)
-fprintf('Diferencia temporal mediana: %.3f ms\n\n', median(syncErrors) * 1000)
+fprintf('Available RGB frames: %d\n', numel(rgbFiles))
+fprintf('Available depth frames: %d\n', numel(depthFiles))
+fprintf('Selected pairs: %d\n', n)
+fprintf('Median timestamp difference: %.3f ms\n\n', median(syncErrors) * 1000)
 
-% Crear sistema RGB-D SLAM
+% Create the RGB-D SLAM system
 slam = rgbdvslam(intrinsics, 1000, 'DepthRange', [minDepth maxDepth], 'MaxNumPoints', 2000, 'SkipMaxFrames', 1, 'TrackFeatureRange', [10 250]);
 
 fprintf('========== RGB-D SLAM ==========\n')
@@ -100,47 +109,47 @@ for i = 1:n
     depth = imread(fullfile(depthFiles(depthIdx(i)).folder, depthFiles(depthIdx(i)).name));
 
     if ~isequal(size(rgb,1), size(depth,1)) || ~isequal(size(rgb,2), size(depth,2))
-        error('Las resoluciones no coinciden en la captura %d', i)
+        error('The RGB and depth resolutions do not match in frame %d.', i)
     end
 
     addFrame(slam, rgb, depth);
     added = i;
 
-    fprintf('[%d/%d] RGB-D enviado\n', i, n)
+    fprintf('[%d/%d] RGB-D frame submitted\n', i, n)
 
     status = checkStatus(slam);
 
     if status == uint8(0)
-        fprintf('Tracking perdido. Se detiene la secuencia.\n')
+        fprintf('Tracking lost. Stopping the sequence.\n')
         break
     end
 end
 
-% Completar el procesamiento
+% Wait for all queued frames to be processed
 while ~isDone(slam)
     pause(0.1)
 end
 
 finalStatus = checkStatus(slam);
-fprintf('Estado final del tracking: %d\n', uint8(finalStatus))
+fprintf('Final tracking status: %d\n', uint8(finalStatus))
 
-% Extraer poses optimizadas
+% Extract the optimized camera poses
 [camPoses, keyFrameIDs] = poses(slam);
 
 fprintf('\n========== TRACKING ==========\n')
-fprintf('Capturas enviadas: %d\n', added)
-fprintf('Keyframes con pose: %d\n', numel(keyFrameIDs))
+fprintf('Submitted frames: %d\n', added)
+fprintf('Keyframes with an estimated pose: %d\n', numel(keyFrameIDs))
 
 if isempty(keyFrameIDs)
-    error('SLAM no ha podido estimar ninguna pose')
+    error('SLAM could not estimate any camera pose.')
 end
 
-% Mostrar resultado SLAM
+% Display the SLAM result
 figure('Name', 'RGB-D SLAM trajectory', 'Color', 'w')
 plot(slam)
 title('RGB-D SLAM - Camera trajectory')
 
-% Reconstruccion densa usando los keyframes
+% Dense reconstruction from the keyframes
 mapXYZ = zeros(0,3,'single');
 mapRGB = zeros(0,3,'uint8');
 cameraPositions = zeros(numel(keyFrameIDs),3);
@@ -173,7 +182,7 @@ for k = 1:numel(keyFrameIDs)
     color = reshape(sampledRGB, [], 3);
     color = color(valid(:),:);
 
-    % Transformar puntos desde camara a mundo
+    % Transform points from camera coordinates to world coordinates
     worldXYZ = transformPointsForward(camPoses(k), xyz);
 
     mapXYZ = [mapXYZ; single(worldXYZ)];
@@ -181,14 +190,14 @@ for k = 1:numel(keyFrameIDs)
 
     cameraPositions(k,:) = camPoses(k).Translation;
 
-    fprintf('Keyframe %d: %d puntos\n', i, size(xyz,1))
+    fprintf('Keyframe %d: %d points\n', i, size(xyz,1))
 end
 
-% Crear y reducir nube global
+% Create and downsample the global point cloud
 mapFull = pointCloud(mapXYZ, 'Color', mapRGB);
 mapPreview = pcdownsample(mapFull, 'gridAverage', voxelMap);
 
-% Mostrar escena con colores reales
+% Display the scene using the original RGB colours
 figure('Name', 'RGB-D Global Map', 'Color', 'w')
 pcshow(mapPreview)
 hold on
@@ -200,7 +209,7 @@ zlabel('Z (m)')
 axis equal
 rotate3d on
 
-% Guardar resultados
+% Save the results
 output = fullfile(root, 'results', 'rgbd_slam');
 
 if ~exist(output, 'dir')
@@ -214,6 +223,6 @@ save(fullfile(output, 'slam_poses.mat'), 'camPoses', 'keyFrameIDs', 'cameraPosit
 
 fprintf('\n========== RESULTS ==========\n')
 fprintf('Keyframes: %d\n', numel(keyFrameIDs))
-fprintf('Puntos acumulados: %d\n', mapFull.Count)
-fprintf('Puntos en preview: %d\n', mapPreview.Count)
-fprintf('Guardado en: %s\n', output)
+fprintf('Accumulated points: %d\n', mapFull.Count)
+fprintf('Points in preview cloud: %d\n', mapPreview.Count)
+fprintf('Saved to: %s\n', output)

@@ -3,13 +3,29 @@ clear
 close all
 rng(0)
 
-root = fileparts(mfilename('fullpath'));
+scriptFolder = fileparts(mfilename('fullpath'));
+root = scriptFolder;
 
-% Poses originales del SLAM
+% Support scripts stored either in the project root or in a code subfolder
+if ~isfolder(fullfile(root, 'raw')) && ~isfolder(fullfile(root, 'results'))
+    parentFolder = fileparts(scriptFolder);
+    if isfolder(fullfile(parentFolder, 'raw')) || isfolder(fullfile(parentFolder, 'results'))
+        root = parentFolder;
+    end
+end
+
+% Original SLAM poses
 inputFolder = fullfile(root, 'results', 'rgbd_slam');
-load(fullfile(inputFolder, 'slam_poses.mat'), 'camPoses', 'keyFrameIDs', 'rgbIdx', 'depthIdx', 'syncErrors');
+poseFile = fullfile(inputFolder, 'slam_poses.mat');
 
-% Configuracion
+if ~isfile(poseFile)
+    error(['slam_poses.mat was not found. Run slam_rgbd.m first. ' ...
+           'Expected file: %s'], poseFile)
+end
+
+load(poseFile, 'camPoses', 'keyFrameIDs', 'rgbIdx', 'depthIdx', 'syncErrors');
+
+% Configuration
 minDepth = 0.5;
 maxDepth = 6;
 pixelStep = 3;
@@ -24,14 +40,14 @@ maxDenseError = 0.08;
 minDenseAgreement10 = 60;
 minDenseCoverage = 40;
 
-% Calibracion registrada RGB-D
+% Registered RGB-D calibration
 fx = 306.000244140625;
 fy = 306.1123352050781;
 cx = 318.4753112792969;
 cy = 201.36949157714844;
 Dcolor = [-1.2477725744247437 0.8747861981391907 -9.421713184565306e-05 -0.00014916047803126276 -0.2381284087896347 -1.2307056188583374 0.8520383238792419 -0.2296648770570755];
 
-% Archivos RGB y profundidad
+% RGB and depth files
 rgbFolder = fullfile(root, 'raw', 'eval', 'camera_color_image_raw');
 depthFolder = fullfile(root, 'raw', 'eval', 'camera_depth_image_raw');
 
@@ -52,7 +68,7 @@ features = cell(n,1);
 locations = cell(n,1);
 clouds = cell(n,1);
 
-fprintf('========== PREPARACION HIBRIDA ==========\n')
+fprintf('========== HYBRID PREPARATION ==========\n')
 fprintf('Keyframes: %d\n\n', n)
 
 for k = 1:n
@@ -70,7 +86,7 @@ for k = 1:n
 
     clouds{k} = crear_nube(depths{k}, fx, fy, cx, cy, minDepth, maxDepth, pixelStep, voxelICP);
 
-    fprintf('[%d/%d] Keyframe %d preparado\n', k, n, frame)
+    fprintf('[%d/%d] Keyframe %d prepared\n', k, n, frame)
 end
 
 camPosesOriginal = camPoses;
@@ -95,7 +111,7 @@ rejectedCorrection = false(n,1);
 method = strings(n,1);
 relativeUsed = repmat(eye(4),1,1,n);
 
-fprintf('\n========== REFINAMIENTO DE POSES ==========\n')
+fprintf('\n========== POSE REFINEMENT ==========\n')
 
 for k = 2:n
     id1 = double(keyFrameIDs(k-1));
@@ -163,17 +179,17 @@ for k = 2:n
         corrected(k) = true;
     elseif slamSuspicious
         rejectedCorrection(k) = true;
-        method(k) = "SLAM (correccion descartada)";
+        method(k) = "SLAM (correction rejected)";
     end
 
     relativeUsed(:,:,k) = chosen.A;
     Tglobal = camPosesHybrid(k-1).A * chosen.A;
     camPosesHybrid(k) = rigidtform3d(Tglobal);
 
-    fprintf('KF %2d -> %2d | 3D %3d | Inliers %3d | Zonas %2d/16 | RANSAC %.3f | SLAM %.3f | Densa %.3f -> %.3f | %s\n', id1, id2, pairMatches, pairInliers, pairCoverage, pairError, slamError(k), denseSlamError(k), denseRansacError(k), method(k))
+    fprintf('KF %2d -> %2d | 3D %3d | Inliers %3d | Regions %2d/16 | RANSAC %.3f | SLAM %.3f | Dense %.3f -> %.3f | %s\n', id1, id2, pairMatches, pairInliers, pairCoverage, pairError, slamError(k), denseSlamError(k), denseRansacError(k), method(k))
 end
 
-% Posiciones antes y despues de la correccion
+% Camera positions before and after pose correction
 positionsOriginal = zeros(n,3);
 positionsHybrid = zeros(n,3);
 
@@ -182,20 +198,20 @@ for k = 1:n
     positionsHybrid(k,:) = camPosesHybrid(k).Translation;
 end
 
-figure('Name','Trayectorias SLAM e hibrida','Color','w')
+figure('Name','SLAM and hybrid trajectories','Color','w')
 plot3(positionsOriginal(:,1),positionsOriginal(:,2),positionsOriginal(:,3),'-o','LineWidth',1.2)
 hold on
 plot3(positionsHybrid(:,1),positionsHybrid(:,2),positionsHybrid(:,3),'-o','LineWidth',1.5)
 xlabel('X (m)')
 ylabel('Y (m)')
 zlabel('Z (m)')
-legend('SLAM original','Trayectoria hibrida','Location','best')
-title('Comparacion de trayectorias')
+legend('Original SLAM','Hybrid trajectory','Location','best')
+title('Trajectory comparison')
 axis equal
 grid on
 view(3)
 
-% Guardar sin sobrescribir las poses originales
+% Save the corrected poses without overwriting the original poses
 output = fullfile(root, 'results', 'rgbd_slam_hibrido');
 
 if ~exist(output, 'dir')
@@ -208,13 +224,13 @@ cameraPositions = positionsHybrid;
 save(fullfile(output, 'slam_poses.mat'), 'camPoses', 'keyFrameIDs', 'cameraPositions', 'rgbIdx', 'depthIdx', 'syncErrors');
 save(fullfile(output, 'refinamiento.mat'), 'camPosesOriginal', 'camPosesHybrid', 'keyFrameIDs', 'numMatches', 'numInliers', 'coverage', 'ransacError', 'slamError', 'icpError', 'translationDiff', 'rotationDiff', 'denseSlamError', 'denseRansacError', 'denseSlamAgreement10', 'denseRansacAgreement10', 'denseSlamCoverage', 'denseRansacCoverage', 'corrected', 'rejectedCorrection', 'method', 'relativeUsed', 'positionsOriginal', 'positionsHybrid');
 
-fprintf('\n========== RESUMEN HIBRIDO ==========\n')
-fprintf('Transformaciones corregidas: %d / %d\n', nnz(corrected), n-1)
-fprintf('Correcciones descartadas por validacion: %d\n', nnz(rejectedCorrection))
-fprintf('RANSAC fiable: %d / %d\n', nnz(numInliers >= minInliers & coverage >= minZones & ransacError <= maxRansacError), n-1)
-fprintf('Error mediano SLAM en pares evaluables: %.3f m\n', median(slamError,'omitnan'))
-fprintf('Error mediano RANSAC: %.3f m\n', median(ransacError,'omitnan'))
-fprintf('Poses corregidas guardadas en: %s\n', output)
+fprintf('\n========== HYBRID SUMMARY ==========\n')
+fprintf('Corrected transformations: %d / %d\n', nnz(corrected), n-1)
+fprintf('Corrections rejected by validation: %d\n', nnz(rejectedCorrection))
+fprintf('Reliable RANSAC estimates: %d / %d\n', nnz(numInliers >= minInliers & coverage >= minZones & ransacError <= maxRansacError), n-1)
+fprintf('Median SLAM error for evaluated pairs: %.3f m\n', median(slamError,'omitnan'))
+fprintf('Median RANSAC error: %.3f m\n', median(ransacError,'omitnan'))
+fprintf('Corrected poses saved to: %s\n', output)
 
 function cloud = crear_nube(depth, fx, fy, cx, cy, minDepth, maxDepth, pixelStep, voxelSize)
 
@@ -257,7 +273,7 @@ if size(xyz1,1) < 100
     return
 end
 
-% tform21 transforma puntos de la segunda camara a la primera.
+% tform21 transforms points from the second camera to the first camera.
 xyz2 = transformPointsInverse(tform21,xyz1);
 zPred = xyz2(:,3);
 u2 = round(fx * xyz2(:,1) ./ zPred + cx + 1);
