@@ -1,5 +1,13 @@
 # Depth Estimation — Team Member 1
+## How to Run
 
+Place the four MATLAB files inside the `reconstruction_volume` folder.
+
+The dataset must keep the following structure:
+
+```text
+raw/eval/camera_color_image_raw/
+raw/eval/camera_depth_image_raw/
 ## Objective
 
 This module estimates metric depth from the left and right infrared images provided in the recordings. Its output is a filtered depth map that can be used by the segmentation and 3D reconstruction modules.
